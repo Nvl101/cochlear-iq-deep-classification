@@ -3,6 +3,11 @@ progress bar for training process
 '''
 
 class ProgressBar:
+    '''
+    print progress of batches inside an epoch
+
+    [###    ] 15/40 training
+    '''
     current_count: int = 0
     total_count: int = -1
     width: int = 15
@@ -24,7 +29,7 @@ class ProgressBar:
             self._print_progress()
         else:
             self._erase()
-    def next(self):
+    def step(self):
         self.current_count += 1
         self._show_progress()
     def reset(self):

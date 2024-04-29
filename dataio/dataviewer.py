@@ -7,6 +7,7 @@ import tempfile
 from typing import Iterable, List, Union
 import cv2
 import numpy as np
+# from dataio.dataset import CochlearIqDataset
 from dataio.utility import read_dicom_image, normalize_image
 
 
@@ -39,6 +40,10 @@ class DataViewer:
 		if buffers is not None:
 			assert len(buffers) == len(dicom_paths)
 			self.buffers = buffers
+	
+	# @classmethod
+	# def from_dataset(dataset: CochlearIqDataset):
+	# 	return DataViewer(dataset.dicom_paths, dataset.labels, dataset.buffer_paths)
 
 	def _read_image(self, dicom_path: str):
 		img_array = read_dicom_image(dicom_path)
@@ -59,7 +64,7 @@ class DataViewer:
 									+ ('.png' if not img_name.endswith('.png') else ''))
 		cv2.imwrite(full_img_path, 255*img_array)
 
-	def run(self, verbose: bool = False):
+	def run(self, verbose: bool = True):
 		# make temp directory
 		if self.tempdir is None:
 			self.tempdir = tempfile.mkdtemp()

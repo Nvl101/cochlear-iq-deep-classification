@@ -123,7 +123,12 @@ def stratified_split(
     inputs:
         data: Iterable of the x-data
         labels: Iterable of labels
-        validation: 
+        validation_size: portion of validation set
+        test_size: portion of test set
+        seed: random generator seed
+    returns:
+        training_data, validation_data, test_data,
+        training_labels, validation_labels, test_labels
     '''
     data_dict = {}
     for i, label in enumerate(labels):
@@ -162,4 +167,75 @@ def stratified_split(
         test_data.extend(label_dicoms[training_count + validation_count:])
         test_labels.extend([label] * test_count)
     return training_data, validation_data, test_data, \
+        training_labels, validation_labels, test_labels
+
+def split_group_number(
+        items,
+        validation_size: float = 0.1,
+        test_size: float = 0.1,
+        seed: int = 233,
+    ):
+    '''
+    stratified split on group number
+    '''
+    # validate training set size
+    training_size = 1 - validation_size - test_size
+    if training_size <= 0:
+        raise ValueError('training size must be positive')
+    total_count = len(items)
+    # split_count = lambda portion, min=1: max(round(total_count * )
+    training_size = round(total_count * training_size)
+    validation_count = max(round(total_count * validation_size), 1)
+    test_count = max(round(total_count * test_size), 1)
+    training_count = total_count - validation_count - test_count
+    shuffle_items = random.shuffle(items, seed=seed)
+    training_items = shuffle_items[:training_count]
+    validation_items = shuffle_items[training_count: training_count + validation_count]
+    test_items = shuffle_items[training_count + validation_count:]
+    return training_items, validation_items, test_items
+
+def grouped_split(
+        dicoms,
+        labels,
+        groups, 
+        validation_size: float = 0.1,
+        test_size: float = 0.1,
+        seed: int = 233,
+    ):
+    '''
+    split items by groups, i.e. patient_id
+
+    the groups are split according to the validation and test size
+    then return the training, validation and
+
+    returns:
+        training_data, validation_data, test_data,
+        training_labels, validation_labels, test_labels
+    '''
+    def get_unique(elements: list):
+        unique_elements = []
+        for element in elements:
+            if element not in unique_elements:
+                unique_elements.append(element)
+        return unique_elements
+    unique_groups = get_unique(groups)
+    training_group, validation_group, test_group = split_group_number(
+        unique_groups, validation_size, test_size, seed
+    )
+    training_dicoms, validation_dicoms, test_dicoms, \
+    training_labels, validation_labels, test_labels = \
+    [], [], [], [], [], []
+    for dicom, label, group in zip(dicoms, labels, groups):
+        if group in training_group:
+            training_dicoms.append(dicom)
+            training_labels.append(label)
+        elif group in validation_group:
+            validation_dicoms.append(dicom)
+            validation_labels.append(label)
+        elif group in test_group:
+            test_dicoms.append(dicom)
+            test_labels.append(label)
+        else:
+            raise ValueError(f'group not found: {group}')
+    return training_dicoms, validation_dicoms, test_dicoms,\
         training_labels, validation_labels, test_labels

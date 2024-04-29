@@ -2,7 +2,7 @@
 model evaluation methods
 - calculate accuracy
 '''
-from abc import abstractclassmethod
+from abc import abstractmethod
 from typing import Any, Iterable
 from dataio.utility import denormalize_label
 import torch
@@ -11,11 +11,11 @@ from torch.utils.data import DataLoader
 
 class Evaluator:
     '''evaluator abstract class'''
-    @abstractclassmethod
+    @abstractmethod
     def append(self, *values):
         pass
 
-    @abstractclassmethod
+    @abstractmethod
     def __str__(self) -> str:
         pass
 
@@ -61,11 +61,18 @@ class AccuracyEvaluator(LabelsEvaluator):
             labels_pred: predicted labels
             labels_actual: actual labels
         '''
-        self._denormalize_method = denormalize_label
+        # method to denormalize labels from classification
+        # tensors are output layer products
+        self._denormalize_method = \
+        lambda tensor: torch.argmax(tensor).item() + 1
+        # = denormalize_label
         if labels_pred and labels_actual:
             assert(len(labels_pred) == len(labels_actual))
             self.labels_pred_raw = [label for label in labels_pred]
             self.labels_actual_raw = [label for label in labels_actual]
+
+    # below are methods to obtain normalized labels from raw
+    # raw labels are important references
 
     @property
     def labels_pred(self):
@@ -85,7 +92,7 @@ class AccuracyEvaluator(LabelsEvaluator):
         val_accuracy = float(true_preds) / total_preds
         return val_accuracy
 
-    def reset_labels(self):
+    def reset(self):
         '''
         reset labels at the start of each epoch
         so that the accuracy, precision and recalls do not accumulate
@@ -93,7 +100,7 @@ class AccuracyEvaluator(LabelsEvaluator):
         self.labels_actual_raw = []
         self.labels_pred_raw = []
 
-    def _tfpn(self, true_values: Iterable[int] = [3]):
+    def _tfpn(self, true_values: Iterable[int] = [2, 3]):
         '''
         calculates true positive, false positive, true negative, false negative
         '''
@@ -112,7 +119,7 @@ class AccuracyEvaluator(LabelsEvaluator):
                     tn += 1
         return tp, fp, tn, fn
 
-    def precision(self, true_values: Iterable[int] = [3]):
+    def precision(self, true_values: Iterable[int] = [2, 3]):
         ''' calculate precision value'''
         tp, fp, _, _ = self._tfpn(true_values)
         try:
@@ -121,7 +128,7 @@ class AccuracyEvaluator(LabelsEvaluator):
             precision_val = -1
         return precision_val
 
-    def recall(self, true_values: Iterable[int] = [3]):
+    def recall(self, true_values: Iterable[int] = [2, 3]):
         ''' calculate recall value '''
         tp, _, _, fn = self._tfpn(true_values)
         try:
@@ -130,11 +137,17 @@ class AccuracyEvaluator(LabelsEvaluator):
             recall_val = -1
         return recall_val
 
-    def f1(self, true_values: Iterable[int] = [3]):
+    def f1(self, true_values: Iterable[int] = [2, 3]):
         ''' calculate f1 score'''
         precision = self.precision(true_values)
         recall = self.recall(true_values)
-        f1_val = 2 * (precision * recall) / (precision + recall)
+        if precision == -1 or recall == -1:
+            f1_val = -1
+        else:
+            try:
+                f1_val = 2 * (precision * recall) / (precision + recall)
+            except ZeroDivisionError:
+                f1_val = -1
         return f1_val
 
     # def accuracy(self):
@@ -161,9 +174,14 @@ class AccuracyEvaluator(LabelsEvaluator):
         #         recall {round(self.recall(), 2)}  \
         #             f1 {round(self.f1(), 2)}'
 
+
 class LossEvaluator(LabelsEvaluator):
     loss_function: callable
-    losses: list = []  # alternatively calculate the average of the losses
+    losses: list = []  # losses from current epoch samples
+    history: list = [] # avg losses from historic epoches
+    _epoch: int = 0 # record epoch number
+    _best_epoch: int = 0 # epoch with minimum loss number
+    _best_loss: float = 2.0 # minimum loss value
 
     def __init__(self, criterion, labels_pred=None, labels_actual=None):
         self.loss_function = criterion
@@ -189,6 +207,34 @@ class LossEvaluator(LabelsEvaluator):
             return float(sum(self.losses) / len(self.losses))
         else:
             return self.loss_function(torch.stack(self.labels_pred_raw), torch.stack(self.labels_actual_raw))
+
+    def best(self):
+        '''
+        returns:
+            best epoch no, best loss value
+        Note: only use this in validation losses
+        '''
+        return self._best_epoch, self._best_loss
+    
+    def is_best(self, loss_value: float = None):
+        loss_value = loss_value if loss_value else self.value()
+        best_loss = self.best()[1]
+        if loss_value < best_loss:
+            return True
+        return False
+
+    def reset(self):
+        '''
+        reset loss values after each epoch
+        '''
+        if self._epoch > 0:
+            epoch_loss = self.value()
+            self.history.append(epoch_loss)
+            if self.is_best(epoch_loss):
+                self._best_epoch = self._epoch
+                self._best_loss = epoch_loss
+        self.losses = []
+        self._epoch += 1
 
     def __str__(self):
         loss_value = round(self.value(), 3)
