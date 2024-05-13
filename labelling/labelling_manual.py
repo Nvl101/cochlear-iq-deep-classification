@@ -88,7 +88,7 @@ dicom_dir = r"D:\data\cochlear-project\dicom"
 mapping_table = pd.read_csv(mapping_table_input) # maps patient and dicom to path
 
 # 2. create a temp folder with subdirectories named by labels
-tempdir = tempfile.mkdtemp()
+tempdir = tempfile.mkdtemp(prefix='ciiq_labelling_')
 labeldir = [os.path.join(tempdir, str(label)) for label in labels]
 for dir in labeldir: # with corresponding label subdirectories
     os.mkdir(dir)

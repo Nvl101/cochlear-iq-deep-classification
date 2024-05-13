@@ -83,6 +83,20 @@ def normalize_image(
     norm_image = norm_image.astype(datatype)
     return norm_image
 
+def clip_image(image_array: np.ndarray) -> np.ndarray:
+    '''
+    clip image to remove the blank edges
+    inputs:
+        image_array, 
+    '''
+    assert len(image_array.shape) == 2, 'image array should be 2D'
+    non_empty_rows = np.where(image_array.max(axis=1) > 0)[0]
+    non_empty_cols = np.where(image_array.max(axis=0) > 0)[0]
+    up, down = min(non_empty_rows), max(non_empty_rows)
+    left, right = min(non_empty_cols), max(non_empty_cols)
+    cropped_image = image_array[up:down, left:right]
+    return cropped_image
+
 def normalize_label(
     label: int,
     n_classes: int = 3,

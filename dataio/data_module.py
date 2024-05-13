@@ -1,4 +1,7 @@
 '''
+TODO: sync updates from dataloader.py
+including sampler functions
+
 data module for classifier
 1. splits training, validation and test data
 2. create training, validation and test datasets and dataloaders

@@ -14,7 +14,8 @@ from pydicom import dcmread
 import torch
 from torchvision import transforms
 from torch.utils.data import Dataset
-from dataio.utility import normalize_image, normalize_label
+from dataio.transforms import grayscale_to_rgb, truncate_thresholding
+from dataio.utility import normalize_image, normalize_label, clip_image
 
 
 def _grayscale_to_rgb(image: torch.Tensor):
@@ -27,36 +28,6 @@ def _grayscale_to_rgb(image: torch.Tensor):
         return image.repeat([3, 1, 1])
     else:
         return image
-
-class DicomImgDataset(Dataset):
-    '''
-    dataset of image, with methods to join paths, and 
-    '''
-    dicom_paths: Iterable[str]
-    buffer_paths: Iterable[str]
-    img_isze: Tuple[int]
-    def __init__(
-        self,
-        dicom_paths: Iterable[str]
-        ):
-        '''
-        arguments:
-            `dicom_paths`: 
-        '''
-        # normalize dicom file paths, join with dir_name
-        # buffer dicom images to paths
-    def _normalize_dicom_path(self, dicom_paths, dicom_dir) -> List[str]:
-        '''
-        convert dicom paths to normalized paths
-        '''
-        norm_dicom_paths = [os.path.join(dicom_path, dicom_dir) for dicom_path in dicom_paths]
-        return norm_dicom_paths
-    def __getitem__(self, idx) -> Any:
-        '''
-        get dicom image from the index
-        '''
-        dicom_path = self.dicom_paths[idx]
-        return super().__getitem__(idx)
 
 # the dataset class
 class CochlearIqDataset(Dataset):
@@ -82,6 +53,7 @@ class CochlearIqDataset(Dataset):
         img_size: Tuple[int] = (64, 64),
         augmentation: bool = False,
         use_3_channels: bool = False,
+        dtype: torch.dtype = torch.float32,
         *args, **kwargs
         ):
         '''
@@ -91,6 +63,8 @@ class CochlearIqDataset(Dataset):
             labels: iterable of labels, by default None, which dataset only outputs images
             img_size: size of the images before inputting to network
             n_classes: number of classes of labels
+            use_3_channels: setting True will transform grayscale image to 3-channel RGB
+            dtype: output image arrays and labels will convert to this datatype
         '''
         # check that dicom and label count match
         assert labels is None or len(dicom_paths) == len(labels), \
@@ -109,6 +83,7 @@ class CochlearIqDataset(Dataset):
         self.labels = list(labels) if labels is not None else None
         self.img_size = img_size
         self._use_3_channels = use_3_channels
+        self.dtype = dtype
         # get image and label transformer
         self.image_transforms = self._get_image_transformer(augmentation)
         if self.labels is not None:
@@ -125,12 +100,12 @@ class CochlearIqDataset(Dataset):
                     self._label_count[label] = 0
         # buffer dicom image arrays into tempfile
         # make a temp folder to keep all image files, randomly named
-        self.buffer_dir = tempfile.mkdtemp()
+        self.buffer_dir = tempfile.mkdtemp(prefix='ciiq_dataset_')
         buffer_files_list = []        
         for dicom_path in self.dicom_paths:
             image_array = self._read_dicom(dicom_path)
             assert isinstance(image_array, np.ndarray)
-            buffer_file_path = tempfile.mktemp(suffix='dcm_', dir = self.buffer_dir)
+            buffer_file_path = tempfile.mktemp(prefix='buffer_', suffix='.npy', dir = self.buffer_dir)
             np.save(buffer_file_path, image_array)
             buffer_files_list.append(buffer_file_path)
         assert len(buffer_files_list) == len(dicom_paths)
@@ -142,37 +117,60 @@ class CochlearIqDataset(Dataset):
         #     transforms.Lambda(normalize_image),
         #     transforms.ToTensor(),
         # ])
-        lst_default_transforms = [
+
+        lst_image_transforms = [
+            # starts with numpy array image
             transforms.Lambda(normalize_image),
+            # transforms.Lambda(truncate_thresholding) if image_augmentation else None,
+            transforms.Lambda(clip_image),
             transforms.ToTensor(),
-        ]
-        if self._use_3_channels:
-            lst_default_transforms.append(_grayscale_to_rgb)
-        default_image_transforms = transforms.Compose(lst_default_transforms)
-        # augmentation transform methods
-        # random_flip = transforms.RandomHorizontalFlip(p=0.5)
-        # padded_crop = transforms.RandomCrop(size=68, padding=4, probability=(0.8, 0.8, 0.1, 0.15))
-        # center_crop = transforms.CenterCrop(size=self.img_size)
-        # random_rotation = transforms.RandomRotation(degrees=7)
-        # random_resized_crop = transforms.RandomResizedCrop(
-        #         size=self.img_size, scale=(0.9, 1.0), ratio=(0.8, 0.9))
-        image_augmentation_transforms = transforms.Compose([           
-            transforms.RandomHorizontalFlip(p=0.5),
-            # transforms.RandomRotation(degrees=7),
+            transforms.Lambda(grayscale_to_rgb) if self._use_3_channels else None,
+            # transforms.Resize((256, 256)),
+            # transforms.CenterCrop((224, 224)) if image_augmentation else None,
+            transforms.RandomHorizontalFlip(p=0.5) if image_augmentation else None,
             transforms.RandomResizedCrop(
-                size=self.img_size, scale=(1.0, 1.1), ratio=(0.9, 1.0))
-        ])
-        if image_augmentation:
-            image_transformer = transforms.Compose([
-                default_image_transforms,
-                image_augmentation_transforms, # augmentation before resize, so size doesn't change
-                # transforms.Resize(self.img_size),
-            ])
-        else:
-            image_transformer = transforms.Compose([
-                default_image_transforms,
-                transforms.Resize(self.img_size),
-            ])
+                size=self.img_size, scale=(1.0, 1.1), ratio=(0.9, 1.0)) if image_augmentation else None,
+            transforms.Resize(self.img_size),
+        ]
+
+        lst_image_transforms = [x for x in lst_image_transforms if x is not None]
+
+        image_transformer = transforms.Compose(lst_image_transforms)
+
+        ### CUTOVER: new method above switches list elements by if statement
+
+        # lst_default_transforms = [
+        #     transforms.Lambda(normalize_image),
+        #     transforms.ToTensor(),
+        # ]
+        # if self._use_3_channels:
+        #     lst_default_transforms.append(_grayscale_to_rgb)
+        # default_image_transforms = transforms.Compose(lst_default_transforms)
+        # # augmentation transform methods
+        # # random_flip = transforms.RandomHorizontalFlip(p=0.5)
+        # # padded_crop = transforms.RandomCrop(size=68, padding=4, probability=(0.8, 0.8, 0.1, 0.15))
+        # # center_crop = transforms.CenterCrop(size=self.img_size)
+        # # random_rotation = transforms.RandomRotation(degrees=7)
+        # # random_resized_crop = transforms.RandomResizedCrop(
+        # #         size=self.img_size, scale=(0.9, 1.0), ratio=(0.8, 0.9))
+        # image_augmentation_transforms = transforms.Compose([
+        #     transforms.RandomHorizontalFlip(p=0.5),
+        #     # transforms.RandomRotation(degrees=7),
+        #     transforms.RandomResizedCrop(
+        #         size=self.img_size, scale=(1.0, 1.1), ratio=(0.9, 1.0)),
+        # ])
+        # if image_augmentation:
+        #     image_transformer = transforms.Compose([
+        #         default_image_transforms,
+        #         transforms.Lambda(random_truncate_thresholding),
+        #         image_augmentation_transforms, # augmentation before resize, so size doesn't change
+        #         # transforms.Resize(self.img_size),
+        #     ])
+        # else:
+        #     image_transformer = transforms.Compose([
+        #         default_image_transforms,
+        #         transforms.Resize(self.img_size),
+        #     ])
         return image_transformer
     
     def _get_label_transformer(self):
@@ -227,10 +225,12 @@ class CochlearIqDataset(Dataset):
             image_array = self._read_dicom(dicom_path) # read image array from dicom
         # transforms on image data
         image = self.image_transforms(image_array)
+        image = image.to(self.dtype)
         # label as y-data
         if self.labels is not None:
             label_raw = self.labels[idx]
             label = self.label_transforms(label_raw)
+            label = label.to(self.dtype)
             return image, label
         else:
             return image

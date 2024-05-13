@@ -99,7 +99,7 @@ def main():
     # mapping_table = mapping_table[mapping_table['patient_id'].isin(mapping_table['patient_id'].unique()[:3])]
 
     # 2. create a temp folder with subdirectories named by labels
-    tempdir = tempfile.mkdtemp()
+    tempdir = tempfile.mkdtemp(prefix='ciiq_labelling_')
     print(tempdir)
     labeldir = [os.path.join(tempdir, str(label)) for label in labels]
     for dir in labeldir: # with corresponding label subdirectories

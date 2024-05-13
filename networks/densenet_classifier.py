@@ -22,7 +22,7 @@ class DensenetClassifier(nn.Sequential):
         '''
         super().__init__()
         self.linear_layer = torch.nn.Linear(in_features=in_channels, out_features=n_classes, bias=True)
-        self.softmax_layer = torch.nn.Softmax()
+        self.softmax_layer = torch.nn.Softmax(dim=1)
     def forward(self, x):
         x = self.linear_layer(x)
         x = self.softmax_layer(x)

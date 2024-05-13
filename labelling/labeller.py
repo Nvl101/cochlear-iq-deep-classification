@@ -104,7 +104,7 @@ class Sorter(abstractSorter):
     def __init__(self, tracking_table, labels=None):
         self.tracking_table = tracking_table
         self.labels = tracking_table['labels'].unique() if labels is None else labels
-        self.sorting_folder = tempfile.mkdtemp()
+        self.sorting_folder = tempfile.mkdtemp('ciiq_sorter_')
 
     def clear_sorting_folder(self, ):
         '''

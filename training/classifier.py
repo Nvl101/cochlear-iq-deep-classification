@@ -132,7 +132,7 @@ class Resnet18Classifier(Classifier):
         self.model = resnet18_classifier
         self.loss_function = nn.CrossEntropyLoss()
         self.optimizer = Adam(self.model.parameters(), lr=learning_rate) # TODO: 
-        self.data = # TODO: initiate the DataModule
+        self.data = DataModule() # TODO: initiate the DataModule
     def train(self, n_epoches=10):
         # train using the training and validation data loaders
         for epoch in n_epoches:
