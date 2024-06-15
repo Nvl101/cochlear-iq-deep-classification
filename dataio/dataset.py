@@ -235,6 +235,74 @@ class CochlearIqDataset(Dataset):
         else:
             return image
 
+class LandmarkImages(Dataset):
+    '''
+    dataset of landmarked cochlear implantation images,
+    which are detected by YOLO and focus on the cochlear spiral
+    '''
+    image_paths: Iterable[str]
+    output_size: Tuple[int] = (256, 256)
+    _use_3_channels: bool = True
+    def __init__(self, image_paths: Iterable, output_size=(256, 256)):
+        self.image_paths = image_paths
+        self.output_size = output_size
+        self.image_transformer = self._get_image_transformer(augmentation=True)
+    def __len__(self):
+        return len(self.image_paths)
+    def _load_image(self, image_path):
+        if not os.path.isfile(image_path):
+            raise FileNotFoundError(f'image file not found: {image_path}')
+        image_array = cv2.imread(image_path)
+        return image_array
+    def __getitem__(self, idx):
+        image_array = self._load_image(self.image_paths[idx])
+        image_array_aug = self.image_transformer(image_array)
+        return image_array_aug
+    def _get_image_transformer(self, augmentation: bool = False):
+        lst_image_transforms = [
+            transforms.Lambda(normalize_image),
+            transforms.ToTensor(),
+            transforms.Lambda(grayscale_to_rgb) if self._use_3_channels else None,
+            transforms.RandomHorizontalFlip(p=0.5) if augmentation else None,
+            transforms.RandomResizedCrop(
+                size=self.output_size, scale=(1.0, 1.1), ratio=(0.8, 1.0))
+                if augmentation else None,
+            transforms.Resize(self.output_size),
+        ]
+        lst_image_transforms = [x for x in lst_image_transforms if x is not None]
+        image_transformer = transforms.Compose(lst_image_transforms)
+        return image_transformer
+    
+class ImageQualityLabels(Dataset):
+    labels: Iterable[int]
+    possible_labels: Iterable[int] = [1, 2, 3]
+    def __init__(self, labels: Iterable):
+        self.labels = [int(label) for label in labels]
+        for label in self.labels:
+            assert label in self.possible_labels, 'label not in possible labels'
+    def __len__(self):
+        return len(self.labels)
+    def __getitem__(self, idx):
+        raw_label = self.labels[idx]
+        return self._normalize_label(raw_label)
+    def _normalize_label(self, label: int):
+        lst_label = [.0, .0, .0]
+        lst_label[label - 1] = 1.0
+        return torch.Tensor(lst_label)
+
+class ImageLabels(Dataset):
+    '''
+    dataset of images and corresponding labels
+    '''
+    def __init__(self, images: LandmarkImages, labels: ImageQualityLabels):
+        assert len(images) == len(labels), 'length of images and labels not equal'
+        self.images = images
+        self.labels = labels
+    def __len__(self):
+        return len(self.images)
+    def __getitem__(self, idx):
+        return self.images[idx], self.labels[idx]
+
 # debug
 if __name__ == '__main__':
     # import sys
