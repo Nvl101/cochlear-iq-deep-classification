@@ -63,7 +63,8 @@ def normalize_image_hu(
 
 def normalize_image(
     image_array: np.ndarray,
-    datatype: str = 'float32'
+    datatype: str = 'float32',
+    multiplier: float = 255,
     ):
     '''
     normalize image array using maximum and minimum values
@@ -80,6 +81,7 @@ def normalize_image(
     img_delta = upper_bound - lower_bound
     norm_image = image_array + lower_bound
     norm_image = norm_image / img_delta
+    norm_image = norm_image * multiplier
     norm_image = norm_image.astype(datatype)
     return norm_image
 

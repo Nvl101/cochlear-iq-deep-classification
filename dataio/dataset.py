@@ -10,6 +10,7 @@ import tempfile
 from typing import Any, Iterable, List, Tuple
 from re import split
 import numpy as np
+import cv2
 from pydicom import dcmread
 import torch
 from torchvision import transforms
@@ -66,6 +67,10 @@ class CochlearIqDataset(Dataset):
             use_3_channels: setting True will transform grayscale image to 3-channel RGB
             dtype: output image arrays and labels will convert to this datatype
         '''
+        # resolving kwargs
+        # use_3_channels = kwargs.get("use_3_channels", False)
+        # pixel_range = kwargs.get("pixel_range", (0, 255))
+
         # check that dicom and label count match
         assert labels is None or len(dicom_paths) == len(labels), \
             'lengths of dicom paths and labels not equal: {len(dicom_paths)}, {len(labels)}'
@@ -196,6 +201,17 @@ class CochlearIqDataset(Dataset):
         ds = dcmread(dicom_path)
         pixel_array = ds.pixel_array.astype('int16')
         return pixel_array
+    
+    def _load_image(self, image_path):
+        if not os.path.isfile(image_path):
+            raise FileNotFoundError(f'image file {image_path} not found')
+        if image_path.endswith('.png'):
+            pixel_array = cv2.imread(image_path)
+        else:
+            ds = dcmread(image_path)
+            pixel_array = ds.pixel_array.astype('int16')
+        return pixel_array
+
     def __len__(self):
         if self.labels is not None:
             assert len(self.labels) == len(self.dicom_paths)
@@ -242,11 +258,21 @@ class LandmarkImages(Dataset):
     '''
     image_paths: Iterable[str]
     output_size: Tuple[int] = (256, 256)
+    image_transformer: callable
     _use_3_channels: bool = True
-    def __init__(self, image_paths: Iterable, output_size=(256, 256)):
-        self.image_paths = image_paths
+    dtype: str = 'float32'
+    def __init__(
+            self, image_paths: Iterable,
+            output_size=(256, 256), augmentation=False,
+            **kwargs
+            ):
+        self.image_paths = [image_path for image_path in image_paths]
         self.output_size = output_size
-        self.image_transformer = self._get_image_transformer(augmentation=True)
+        self.image_transformer = self._get_image_transformer(augmentation=augmentation)
+    @classmethod
+    def from_dicoms(cls, dicom_paths: Iterable):
+        # TODO: 
+        pass
     def __len__(self):
         return len(self.image_paths)
     def _load_image(self, image_path):
@@ -255,6 +281,8 @@ class LandmarkImages(Dataset):
         image_array = cv2.imread(image_path)
         return image_array
     def __getitem__(self, idx):
+        if idx >= len(self):
+            raise IndexError("out of range")
         image_array = self._load_image(self.image_paths[idx])
         image_array_aug = self.image_transformer(image_array)
         return image_array_aug
@@ -273,16 +301,23 @@ class LandmarkImages(Dataset):
         image_transformer = transforms.Compose(lst_image_transforms)
         return image_transformer
     
-class ImageQualityLabels(Dataset):
+class QualityLabels(Dataset):
     labels: Iterable[int]
     possible_labels: Iterable[int] = [1, 2, 3]
-    def __init__(self, labels: Iterable):
+    dtype: str = 'float32'
+    def __init__(self, labels: Iterable, **kwargs):
         self.labels = [int(label) for label in labels]
         for label in self.labels:
             assert label in self.possible_labels, 'label not in possible labels'
+    @classmethod
+    def from_normalized(cls, norm_labels: Iterable[torch.Tensor]):
+        denorm_labels = [torch.argmax(label).item() for label in norm_labels]
+        return cls(denorm_labels)
     def __len__(self):
         return len(self.labels)
     def __getitem__(self, idx):
+        if idx >= len(self):
+            raise IndexError("out of range")
         raw_label = self.labels[idx]
         return self._normalize_label(raw_label)
     def _normalize_label(self, label: int):
@@ -294,10 +329,21 @@ class ImageLabels(Dataset):
     '''
     dataset of images and corresponding labels
     '''
-    def __init__(self, images: LandmarkImages, labels: ImageQualityLabels):
+    def __init__(self, images: LandmarkImages, labels: QualityLabels):
         assert len(images) == len(labels), 'length of images and labels not equal'
         self.images = images
         self.labels = labels
+    @classmethod
+    def from_iterables(
+        cls, image_paths: Iterable[str], labels: Iterable[int],
+        images_kwargs: dict = dict(), labels_kwargs: dict = dict(),
+        **common_kwargs):
+        '''
+        initiate directly from images and labels
+        '''
+        images_dataset = LandmarkImages(image_paths, **images_kwargs, **common_kwargs)
+        labels_dataset = QualityLabels(labels, **labels_kwargs, **common_kwargs)
+        return cls(images_dataset, labels_dataset)
     def __len__(self):
         return len(self.images)
     def __getitem__(self, idx):

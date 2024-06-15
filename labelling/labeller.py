@@ -4,7 +4,7 @@ labeller class
 which handles the manual or semi-supervised labelling process
 '''
 import os
-from abc import abstractclassmethod
+from abc import abstractmethod
 import concurrent.futures as cf
 import tempfile
 from typing import Iterable
@@ -73,22 +73,22 @@ class abstractLabeller:
     sorter: object # for tracking the 
     def __init__(self, *args, **kwargs):
         pass
-    @abstractclassmethod
+    @abstractmethod
     def release_images(self, *args, **kwargs):
         pass
-    @abstractclassmethod
+    @abstractmethod
     def update_labels(self, *args, **kwargs):
         pass
 
 
 class abstractSorter:
-    @abstractclassmethod
+    @abstractmethod
     def clear_sorting_folder(self, *args, **kwargs):
         pass
-    @abstractclassmethod
+    @abstractmethod
     def release_images(self, *args, **kwargs):
         pass
-    @abstractclassmethod
+    @abstractmethod
     def track_labels(self, *args, **kwargs):
         pass
 
@@ -189,13 +189,13 @@ class Labeller(abstractLabeller):
         self.dicom_paths = tracking_table['dicom_paths']
         self.labels = tracking_table['labels']
 
-    def _dicom_to_imgs(dicom_path: Iterable[str], img_labels: Iterable[str] = None):
+    def _dicom_to_imgs(self, dicom_path: Iterable[str], img_labels: Iterable[str] = None):
         '''
         write dicom images to folders of their corresponding labels
         '''
         pass
 
-    def _predict_labels(dicom_paths: Iterable[str]):
+    def _predict_labels(self, dicom_paths: Iterable[str]):
         '''
         predict the labels of 
 
